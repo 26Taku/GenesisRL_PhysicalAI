@@ -80,7 +80,7 @@ def main():
 
     motors_dof = np.arange(6)
     fingers_dof = np.arange(6, 7)  
-    first_qpos = np.array([-0, -0.9,  -0.5,  -1.4,  -1.3,  -0.3])  
+    first_qpos = np.array([-0, -0.9,  -0.5,  -1.4,  -1.3,  -0.3, 0.0])  
   
     kp = np.array([4500, 4500, 3500, 3500, 2000, 2000, 100, 100, 100, 100, 100, 100,]) 
     ur3_gripper.set_dofs_kp(  
@@ -101,36 +101,14 @@ def main():
     gripper_open = lambda: finger_qpos.__setitem__(0, 0.0)
     gripper_close = lambda: finger_qpos.__setitem__(0, 0.7)
     
-    ur3_gripper.set_qpos(first_qpos, motors_dof)  
+    gripper_open()
+    
+    ur3_gripper.set_dofs_position(first_qpos[:-1], motors_dof)  
+    ur3_gripper.set_dofs_position(first_qpos[-1:], fingers_dof)
     scene.step()
     cam.render()
     
-    gripper_open()
     
-    for i in range(50):  
-        ur3_gripper.control_dofs_position(first_qpos[0:6], motors_dof)  
-        ur3_gripper.control_dofs_position(finger_qpos, fingers_dof)  
-        scene.step()
-        cam.render()   
-
-    gripper_close()
-    
-    for i in range(50):  
-        ur3_gripper.control_dofs_position(first_qpos[0:6], motors_dof)  
-        ur3_gripper.control_dofs_position(finger_qpos, fingers_dof)  
-        scene.step()
-        cam.render()   
-    
-    """
-    for i in range(50):  
-        ur3_gripper.control_dofs_position(first_qpos[0:6], motors_dof)  
-        ur3_gripper.control_dofs_position(finger_qpos, fingers_dof)  
-        scene.step()
-        cam.render()   
-    
-    """
-    
-    """
 
     #move to pre-grasp pose  
     qpos = ur3_gripper.inverse_kinematics(  
@@ -139,7 +117,7 @@ def main():
         quat=np.array([0, 1, 0, 0]),  
         dofs_idx_local = motors_dof  
     )  
-    print(qpos)  
+    #print(qpos)  
     
     for i in range(20):  
         ur3_gripper.set_dofs_position(qpos[0:6], motors_dof)  
@@ -156,7 +134,7 @@ def main():
             quat=np.array([0, 1, 0, 0]),  
             dofs_idx_local = motors_dof  
         )
-        print("qpos", qpos)
+        #print("qpos", qpos)
         ur3_gripper.control_dofs_position(qpos[0:6], motors_dof)  
         ur3_gripper.control_dofs_position(finger_qpos, fingers_dof)  
         scene.step()
@@ -191,16 +169,14 @@ def main():
             quat=np.array([0, 1, 0, 0]),  
             #dofs_idx_local = motors_dof  
         )
-        print("qpos", qpos)
+        #print("qpos", qpos)
         ur3_gripper.control_dofs_position(qpos[0:6], motors_dof)  
         ur3_gripper.control_dofs_position(finger_qpos, fingers_dof)  
         scene.step()
         cam.render()
-    
-    """
         
-    cam.stop_recording(save_to_filename='ur3_robotiq_grasp2.mp4', fps=60)
-    print("Simulation complete. Video saved as 'ur3_robotiq_grasp2.mp4'.")
+    cam.stop_recording(save_to_filename='ur3_robotiq_grasp.mp4', fps=60)
+    print("Simulation complete. Video saved as 'ur3_robotiq_grasp.mp4'.")
 
 if __name__ == "__main__":
     main()
