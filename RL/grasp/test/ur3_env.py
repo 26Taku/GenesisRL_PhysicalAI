@@ -143,9 +143,9 @@ class UREnv:
         
     def step(self, actions):
         qpos_all = self.robot.get_qpos(self.all_dof_idx)
-        qpos = qpos_all[:, :7]  # get only the first 7 joints (motors)
+        qpos = qpos_all[:, self.motors_dof_idx]  # get only the first 7 joints (motors)
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        target_dof_pos = self.actions * self.env_cfg["action_scale"] + self.default_dof_pos
+        target_dof_pos = self.actions * self.env_cfg["action_scale"] + qpos
         
         
         self.robot.control_dofs_position(target_dof_pos, self.motors_dof_idx)
