@@ -117,8 +117,8 @@ def get_cfgs():
     reward_cfg = {
         "target_pos" : [0.65, 0.0, 0.15],
         "reward_scales": {
-            "reach_target": 10.0,  # ターゲットに到達
-            "grasp_success": 50.0,  # 把持成功
+            "reach_target": 1.0,  # ターゲットに到達
+            "grasp_success": 0.0,  # 把持成功
             "action_smoothness": -0.01,  # アクションの滑らかさ
             #"collision_penalty": -1.0,  # 衝突ペナルティ
         },
