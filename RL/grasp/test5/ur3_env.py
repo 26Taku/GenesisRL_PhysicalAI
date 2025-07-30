@@ -35,6 +35,7 @@ class UREnv:
         self.scene = gs.Scene(
             sim_options=gs.options.SimOptions(dt=self.dt, substeps=2),
             viewer_options=gs.options.ViewerOptions(
+                res=(960, 1080), 
                 max_FPS=int(0.5 / self.dt),
                 camera_pos=(1.5, -1.5, 1),
                 camera_lookat=(0.0, 0.0, 0.3),
@@ -73,9 +74,9 @@ class UREnv:
         )
         
         self.cam = self.scene.add_camera(
-            res=(640, 480), 
-            pos=(2.0, 2.0, 2.5),
-            lookat=(0.0, 0.0, 0.5),
+            res=(1920, 1080), 
+            pos=(1.5, -1.5, 1.0),
+            lookat=(0.0, 0.0, 0.3),
             fov=40,
             GUI=False,
         )
@@ -86,8 +87,8 @@ class UREnv:
 
         # names to indices
         self.motors_dof_idx = list(np.arange(7))
-        self.arm_dof_idx = list(np.arange(6))
-        self.finger_dof_idx = 6
+        
+        self.end_effector = self.robot.get_link("wrist_3_link") 
 
 
         # PD control parameters
@@ -143,29 +144,12 @@ class UREnv:
         pass
         
     def step(self, actions):
-        qpos_all = self.robot.get_dofs_position(self.motors_dof_idx)
-        links_pos = self.robot.get_links_pos()
-        links_quat = self.robot.get_links_quat()
-        eepos = links_pos[:, 5, :3]  # end effector position
-        eequat = links_quat[:, 5, :4]  # end effector quaternion
-        eedeg = quat_to_xyz(eequat)  # end effector euler angles
-        
+        qpos = self.robot.get_qpos(self.motors_dof_idx)
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        target_eepos = self.actions[:, :3] * self.env_cfg["action_scale"] + eepos
-        target_eedeg = self.actions[:, 3:6] * self.env_cfg["action_scale"] + eedeg
+        target_dof_pos = self.actions * self.env_cfg["action_scale"] + qpos
         
-        target_eequat = xyz_to_quat(target_eedeg)
         
-        target_dof_pos = self.robot.inverse_kinematics(
-            link=self.robot.get_link("wrist_3_link"),
-            pos=target_eepos,
-            quat=target_eequat,
-            dofs_idx_local=self.arm_dof_idx,
-        )
-        
-        target_dof_pos[:, self.finger_dof_idx] = self.actions[:, self.finger_dof_idx] * self.env_cfg["action_scale"] + qpos_all[:, self.finger_dof_idx]
-        
-        self.robot.control_dofs_position(target_dof_pos[:, :len(self.motors_dof_idx)], self.motors_dof_idx)
+        self.robot.control_dofs_position(target_dof_pos, self.motors_dof_idx)
         self.scene.step()
 
         # update buffers
@@ -200,11 +184,14 @@ class UREnv:
             
         qpos_all = self.robot.get_dofs_position(self.motors_dof_idx)
         qpos = qpos_all[:, :7]  # get only the first 7 joints (motors)
-        links_pos = self.robot.get_links_pos()
-        links_quat = self.robot.get_links_quat()
-        eepos = links_pos[:, 5, :3]  # end effector position
-        eequat = links_quat[:, 5, :4]  # end effector quaternion
-
+        #links_pos = self.robot.get_links_pos()
+        #links_quat = self.robot.get_links_quat()
+        #eepos = links_pos[:, 5, :3]  # end effector position
+        #eequat = links_quat[:, 5, :4]  # end effector quaternion
+        eepos = self.end_effector.get_pos()  # end effector position
+        eequat = self.end_effector.get_quat()  # end effector quaternion
+        
+        
         # compute observations
         self.obs_buf = torch.cat(
             [
@@ -270,22 +257,24 @@ class UREnv:
 
     # ------------ reward functions----------------
     def _reward_reach_target(self):
-        links_pos = self.robot.get_links_pos()
-        eepos = links_pos[:, 5, :3]  # end effector position
+        #links_pos = self.robot.get_links_pos()
+        #eepos = links_pos[:, 5, :3]  # end effector position
+        eepos = self.end_effector.get_pos()  # end effector position
         target_pos = torch.tensor(self.reward_cfg["target_pos"], device=self.device)
         target_pos_broadcasted = target_pos.unsqueeze(0).repeat(self.num_envs, 1)
         #target_quat = np.array(self.reward_cfg["target_quat"])
         # エンドエフェクタとターゲットの距離
         distance = torch.norm(eepos - target_pos_broadcasted, dim=1)
-        epsilon = 0.05
-        reward = 1.0 / (distance + epsilon)
+        epsilon = 0.1
+        reward = 5.0 / (distance + epsilon)
         bonus_mask = (distance < 0.05)  # 0.05m以内に到達した場合のボーナス
-        reward[bonus_mask] += 4.0  # bonus for reaching the target
+        reward[bonus_mask] += 10.0  # bonus for reaching the target
         return reward
     
     def _reward_ee_quat(self):
-        links_quat = self.robot.get_links_quat()
-        eequat = links_quat[:, 5, :4]  # エンドエフェクタのクォータニオン (x, y, z, w)
+        #links_quat = self.robot.get_links_quat()
+        #eequat = links_quat[:, 5, :4]  # エンドエフェクタのクォータニオン (x, y, z, w)
+        eequat = self.end_effector.get_quat()  # エンドエフェクタのクォータニオン (x, y, z, w)
         target_quat = torch.tensor(self.reward_cfg["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
 
         # 1. 相対回転クォータニオンを計算
@@ -307,14 +296,15 @@ class UREnv:
         # 角度誤差が0に近いほど高い報酬を与える指数関数
         # orientation_reward_scale は報酬の急峻さを調整
         epsilon = 0.1
-        reward = 1.0 / (angle_error + epsilon)
+        reward = 5.0 / (angle_error + epsilon)
         bonus_mask = (angle_error < 0.1)  # 0.1ラジアン以内に到達した場合のボーナス
-        reward[bonus_mask] += 1.0
+        reward[bonus_mask] += 10.0
         return reward
 
     def _reward_grasp_success(self):
-        links_pos = self.robot.get_links_pos()
-        eepos = links_pos[:, 5, :3]  # end effector position
+        #links_pos = self.robot.get_links_pos()
+        #eepos = links_pos[:, 5, :3]  # end effector position
+        eepos = self.end_effector.get_pos()  # end effector position
         target_pos = torch.tensor(self.reward_cfg["target_pos"], device=self.device)
         target_pos_broadcasted = target_pos.unsqueeze(0).repeat(self.num_envs, 1)      
         # 把持成功の判定（距離とグリッパーの状態）
@@ -339,8 +329,25 @@ class UREnv:
             collision_idx = torch.tensor([False] * self.num_envs)
         # print("collision_idx", collision_idx.cpu().numpy())
 
-        self.reached_goal[collision_idx] = True
+        #self.reached_goal[collision_idx] = True
         reward = torch.zeros(self.num_envs, device=gs.device, dtype=gs.tc_float)
-        reward[collision_idx] = -100.0
+        reward[collision_idx] = -10.0
+
+        return reward
+    
+    def _reward_collision_bonus(self):
+        # キューブとの衝突があった場合、報酬を与える。
+        contacts = self.robot.get_contacts(with_entity=self.target_object)
+
+        try:
+            collision_idx = contacts["geom_a"][:,1] == 0
+        except IndexError:
+            # 衝突がない場合、collision_idxは全てfalseになる
+            collision_idx = torch.tensor([False] * self.num_envs)
+        # print("collision_idx", collision_idx.cpu().numpy())
+
+        #self.reached_goal[collision_idx] = True
+        reward = torch.zeros(self.num_envs, device=gs.device, dtype=gs.tc_float)
+        reward[collision_idx] = 2.0
 
         return reward

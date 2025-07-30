@@ -99,7 +99,7 @@ def get_cfgs():
         # base pose
         "base_init_pos": [  -0, -0.9,  -0.5,  -1.4,  -1.3,  -0.3, 0.04],
         "base_init_quat": [0.0, 1, 0.0, 0.0],
-        "episode_length_s": 4.0,
+        "episode_length_s": 10.0,
         "resampling_time_s": 4.0,
         "action_scale": 0.05,
         "simulate_action_latency": True,
@@ -115,15 +115,16 @@ def get_cfgs():
         },
     }
     reward_cfg = {
-        "target_pos" : [0.65, 0.0, 0.15],
+        "target_pos" : [0.4, 0.0, 0.15],
         "target_quat": [0.0, 1.0, 0.0, 0.0],
-        "orientation_reward_scale": 5.0,
+        #"orientation_reward_scale": 5.0,
         "reward_scales": {
             "reach_target": 1.0,  # ターゲットに到達
             "ee_quat": 0.8,  # エンドエフェクタのクォータニオン
             "grasp_success": 0.0,  # 把持成功
             "action_smoothness": -0.1,  # アクションの滑らかさ
-            "collision_penalty": -1.0,  # 衝突ペナルティ
+            "collision_penalty": 1.0,  # 衝突ペナルティ
+            "collision_bonus": 1.0,  # 衝突ペナルティ
         },
     }
     command_cfg = {
