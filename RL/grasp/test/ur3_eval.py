@@ -49,13 +49,18 @@ def main():
 
     obs, _ = env.reset()
     env.cam.start_recording()
+    episode_length = env_cfg["episode_length_s"]
+    current_time = 0.0
+    dt = env.scene.dt
     with torch.no_grad():
-        while True:
+        while current_time < env_cfg["episode_length_s"]:
             actions = policy(obs)
             obs, rews, dones, infos = env.step(actions)
             env.cam.render()
+            current_time += dt
 
-    env.cam.stop_recording(save_to_filename='ur3_RL_test.mp4', fps=60)
+
+    env.cam.stop_recording(save_to_filename='ur3_RL_test.mp4', fps=int(1.0 / env.scene.dt))
     print("Simulation complete. Video saved as 'ur3_RL_test.mp4'.")
 
 if __name__ == "__main__":
