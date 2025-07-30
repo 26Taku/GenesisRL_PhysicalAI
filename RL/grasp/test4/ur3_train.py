@@ -116,11 +116,14 @@ def get_cfgs():
     }
     reward_cfg = {
         "target_pos" : [0.65, 0.0, 0.15],
+        "target_quat": [0.0, 1.0, 0.0, 0.0],
+        "orientation_reward_scale": 5.0,
         "reward_scales": {
             "reach_target": 1.0,  # ターゲットに到達
+            "ee_quat": 0.8,  # エンドエフェクタのクォータニオン
             "grasp_success": 0.0,  # 把持成功
-            "action_smoothness": -0.01,  # アクションの滑らかさ
-            #"collision_penalty": -1.0,  # 衝突ペナルティ
+            "action_smoothness": -0.1,  # アクションの滑らかさ
+            "collision_penalty": -1.0,  # 衝突ペナルティ
         },
     }
     command_cfg = {
@@ -134,7 +137,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--exp_name", type=str, default="ur-pick")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=101)
+    parser.add_argument("-I", "--max_iterations", type=int, default=101)
     args = parser.parse_args()
 
     gs.init(logging_level="warning")

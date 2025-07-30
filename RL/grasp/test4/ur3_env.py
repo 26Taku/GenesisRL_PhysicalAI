@@ -51,7 +51,7 @@ class UREnv:
         )
 
         # add plain
-        self.scene.add_entity(gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
+        self.plane = self.scene.add_entity(gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True))
 
         # add robot
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=gs.device)
@@ -277,8 +277,40 @@ class UREnv:
         #target_quat = np.array(self.reward_cfg["target_quat"])
         # エンドエフェクタとターゲットの距離
         distance = torch.norm(eepos - target_pos_broadcasted, dim=1)
-        epsilon = 0.01
-        return 1.0 / (distance + epsilon)
+        epsilon = 0.05
+        reward = 1.0 / (distance + epsilon)
+        bonus_mask = (distance < 0.05)  # 0.05m以内に到達した場合のボーナス
+        reward[bonus_mask] += 4.0  # bonus for reaching the target
+        return reward
+    
+    def _reward_ee_quat(self):
+        links_quat = self.robot.get_links_quat()
+        eequat = links_quat[:, 5, :4]  # エンドエフェクタのクォータニオン (x, y, z, w)
+        target_quat = torch.tensor(self.reward_cfg["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+
+        # 1. 相対回転クォータニオンを計算
+        # Q_error = Q_target * Q_EE_inv
+        # Genesisのinv_quatは (x, y, z, w) を受け取り、同じ形式で返す
+        # transform_quat_by_quat(q1, q2) は q1 * q2 を計算
+        q_error = transform_quat_by_quat(target_quat, inv_quat(eequat))
+        #print(q_error[0], q_error.dtype)  # デバッグ用
+
+        # 2. 相対回転クォータニオンから角度誤差を計算
+        # クォータニオンのw成分は4番目 (インデックス3)
+        # acos の引数は [-1, 1] の範囲にクリップする
+        w_component = torch.clip(q_error[:, 3], -1.0 + 1e-7, 1.0 - 1e-7) # 浮動小数点誤差対策
+        #print(w_component, w_component.dtype)  # デバッグ用
+        # w の絶対値を取ることで、常に [0, pi] の範囲の最小角度を得る
+        angle_error = 2 * torch.acos(torch.abs(w_component))
+        #print(angle_error[0], angle_error.dtype)
+        # 3. 角度誤差に基づく報酬
+        # 角度誤差が0に近いほど高い報酬を与える指数関数
+        # orientation_reward_scale は報酬の急峻さを調整
+        epsilon = 0.1
+        reward = 1.0 / (angle_error + epsilon)
+        bonus_mask = (angle_error < 0.1)  # 0.1ラジアン以内に到達した場合のボーナス
+        reward[bonus_mask] += 1.0
+        return reward
 
     def _reward_grasp_success(self):
         links_pos = self.robot.get_links_pos()
@@ -293,4 +325,22 @@ class UREnv:
 
     def _reward_action_smoothness(self):
         # アクションの変化を小さくする
-        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
+        reward = torch.sum(torch.square(self.last_actions - self.actions), dim=1)
+        return reward
+
+    def _reward_collision_penalty(self):
+        # 衝突があった場合、報酬を-100.0に設定し、エピソードを終了する。
+        contacts = self.robot.get_contacts(with_entity=self.plane)
+
+        try:
+            collision_idx = contacts["geom_a"][:,0] == 0
+        except IndexError:
+            # 衝突がない場合、collision_idxは全てfalseになる
+            collision_idx = torch.tensor([False] * self.num_envs)
+        # print("collision_idx", collision_idx.cpu().numpy())
+
+        self.reached_goal[collision_idx] = True
+        reward = torch.zeros(self.num_envs, device=gs.device, dtype=gs.tc_float)
+        reward[collision_idx] = -100.0
+
+        return reward
