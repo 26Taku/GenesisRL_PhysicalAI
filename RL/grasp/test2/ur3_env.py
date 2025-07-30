@@ -2,8 +2,7 @@ import torch
 import numpy as np
 import math
 import genesis as gs
-from genesis.utils.geom import quat_to_xyz, transform_by_quat, inv_quat, transform_quat_by_quat
-
+from genesis.utils.geom import quat_to_xyz, xyz_to_quat, transform_by_quat, inv_quat, transform_quat_by_quat
 
 def gs_rand_float(lower, upper, shape, device):
     return (upper - lower) * torch.rand(size=shape, device=device) + lower
@@ -87,11 +86,13 @@ class UREnv:
 
         # names to indices
         self.motors_dof_idx = list(np.arange(7))
-        self.all_dof_idx = list(np.arange(7))
+        self.arm_dof_idx = list(np.arange(6))
+        self.finger_dof_idx = 6
+
 
         # PD control parameters
-        self.robot.set_dofs_kp(self.env_cfg["kp"], self.all_dof_idx)
-        self.robot.set_dofs_kv(self.env_cfg["kd"], self.all_dof_idx)
+        self.robot.set_dofs_kp(self.env_cfg["kp"], self.motors_dof_idx)
+        self.robot.set_dofs_kv(self.env_cfg["kd"], self.motors_dof_idx)
 
         qpos = self.env_cfg["base_init_pos"]
         # qpos[0:12]を [num_envs, 12] の形にコピーしながら変形する。
@@ -142,13 +143,29 @@ class UREnv:
         pass
         
     def step(self, actions):
-        qpos_all = self.robot.get_qpos(self.all_dof_idx)
-        qpos = qpos_all[:, self.motors_dof_idx]  # get only the first 7 joints (motors)
+        qpos_all = self.robot.get_dofs_position(self.motors_dof_idx)
+        links_pos = self.robot.get_links_pos()
+        links_quat = self.robot.get_links_quat()
+        eepos = links_pos[:, 5, :3]  # end effector position
+        eequat = links_quat[:, 5, :4]  # end effector quaternion
+        eedeg = quat_to_xyz(eequat)  # end effector euler angles
+        
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        target_dof_pos = self.actions * self.env_cfg["action_scale"] + qpos
+        target_eepos = self.actions[:, :3] * self.env_cfg["action_scale"] + eepos
+        target_eedeg = self.actions[:, 3:6] * self.env_cfg["action_scale"] + eedeg
         
+        target_eequat = xyz_to_quat(target_eedeg)
         
-        self.robot.control_dofs_position(target_dof_pos, self.motors_dof_idx)
+        target_dof_pos = self.robot.inverse_kinematics(
+            link=self.robot.get_link("wrist_3_link"),
+            pos=target_eepos,
+            quat=target_eequat,
+            dofs_idx_local=self.arm_dof_idx,
+        )
+        
+        target_dof_pos[:, self.finger_dof_idx] = self.actions[:, self.finger_dof_idx] * self.env_cfg["action_scale"] + qpos_all[:, self.finger_dof_idx]
+        
+        self.robot.control_dofs_position(target_dof_pos[:, :len(self.motors_dof_idx)], self.motors_dof_idx)
         self.scene.step()
 
         # update buffers
@@ -185,8 +202,8 @@ class UREnv:
         qpos = qpos_all[:, :7]  # get only the first 7 joints (motors)
         links_pos = self.robot.get_links_pos()
         links_quat = self.robot.get_links_quat()
-        eepos = links_pos[:, 6, :3]  # end effector position
-        eequat = links_quat[:, 6, :4]  # end effector quaternion
+        eepos = links_pos[:, 5, :3]  # end effector position
+        eequat = links_quat[:, 5, :4]  # end effector quaternion
 
         # compute observations
         self.obs_buf = torch.cat(
@@ -254,17 +271,17 @@ class UREnv:
     # ------------ reward functions----------------
     def _reward_reach_target(self):
         links_pos = self.robot.get_links_pos()
-        eepos = links_pos[:, 6, :3]  # end effector position
+        eepos = links_pos[:, 5, :3]  # end effector position
         target_pos = torch.tensor(self.reward_cfg["target_pos"], device=self.device)
         target_pos_broadcasted = target_pos.unsqueeze(0).repeat(self.num_envs, 1)
         #target_quat = np.array(self.reward_cfg["target_quat"])
         # エンドエフェクタとターゲットの距離
-        distance = torch.norm(eepos - target_pos_broadcasted, dim=1) # torch.normを正しく使用
+        distance = torch.norm(eepos - target_pos_broadcasted, dim=1)
         return torch.exp(-distance * 10.0)  # 距離に基づく報酬
 
     def _reward_grasp_success(self):
         links_pos = self.robot.get_links_pos()
-        eepos = links_pos[:, 6, :3]  # end effector position
+        eepos = links_pos[:, 5, :3]  # end effector position
         target_pos = torch.tensor(self.reward_cfg["target_pos"], device=self.device)
         target_pos_broadcasted = target_pos.unsqueeze(0).repeat(self.num_envs, 1)      
         # 把持成功の判定（距離とグリッパーの状態）
