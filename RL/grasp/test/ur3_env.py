@@ -185,8 +185,8 @@ class UREnv:
         qpos = qpos_all[:, :7]  # get only the first 7 joints (motors)
         links_pos = self.robot.get_links_pos()
         links_quat = self.robot.get_links_quat()
-        eepos = links_pos[:, 6, :3]  # end effector position
-        eequat = links_quat[:, 6, :4]  # end effector quaternion
+        eepos = links_pos[:, 5, :3]  # end effector position
+        eequat = links_quat[:, 5, :4]  # end effector quaternion
 
         # compute observations
         self.obs_buf = torch.cat(
@@ -254,7 +254,7 @@ class UREnv:
     # ------------ reward functions----------------
     def _reward_reach_target(self):
         links_pos = self.robot.get_links_pos()
-        eepos = links_pos[:, 6, :3]  # end effector position
+        eepos = links_pos[:, 5, :3]  # end effector position
         target_pos = torch.tensor(self.reward_cfg["target_pos"], device=self.device)
         target_pos_broadcasted = target_pos.unsqueeze(0).repeat(self.num_envs, 1)
         #target_quat = np.array(self.reward_cfg["target_quat"])
@@ -264,7 +264,7 @@ class UREnv:
 
     def _reward_grasp_success(self):
         links_pos = self.robot.get_links_pos()
-        eepos = links_pos[:, 6, :3]  # end effector position
+        eepos = links_pos[:, 5, :3]  # end effector position
         target_pos = torch.tensor(self.reward_cfg["target_pos"], device=self.device)
         target_pos_broadcasted = target_pos.unsqueeze(0).repeat(self.num_envs, 1)      
         # 把持成功の判定（距離とグリッパーの状態）
