@@ -23,7 +23,7 @@ from ur3_env import UREnv
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
+    parser.add_argument("-e", "--exp_name", type=str, default="ur-pick")
     parser.add_argument("--ckpt", type=int, default=100)
     args = parser.parse_args()
 
@@ -39,7 +39,7 @@ def main():
         obs_cfg=obs_cfg,
         reward_cfg=reward_cfg,
         command_cfg=command_cfg,
-        show_viewer=True,
+        show_viewer=False,
     )
 
     runner = OnPolicyRunner(env, train_cfg, log_dir, device=gs.device)
@@ -48,11 +48,15 @@ def main():
     policy = runner.get_inference_policy(device=gs.device)
 
     obs, _ = env.reset()
+    env.cam.start_recording()
     with torch.no_grad():
         while True:
             actions = policy(obs)
             obs, rews, dones, infos = env.step(actions)
+            env.cam.render()
 
+    env.cam.stop_recording(save_to_filename='ur3_RL_test.mp4', fps=60)
+    print("Simulation complete. Video saved as 'ur3_RL_test.mp4'.")
 
 if __name__ == "__main__":
     main()

@@ -105,6 +105,9 @@ def main():
     
     ur3_gripper.set_dofs_position(first_qpos[:-1], motors_dof)  
     ur3_gripper.set_dofs_position(first_qpos[-1:], fingers_dof)
+    
+    print(ur3_gripper.get_qpos())
+    
     scene.step()
     cam.render()
     

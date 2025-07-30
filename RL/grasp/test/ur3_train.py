@@ -68,53 +68,45 @@ def get_train_cfg(exp_name, max_iterations):
 
 def get_cfgs():
     env_cfg = {
-        "num_actions": 12,
+        "num_actions": 7,   # 6 for UR3 joints, 1 for gripper
         # joint/link names
         "default_joint_angles": {  # [rad]
-            "FL_hip_joint": 0.0,
-            "FR_hip_joint": 0.0,
-            "RL_hip_joint": 0.0,
-            "RR_hip_joint": 0.0,
-            "FL_thigh_joint": 0.8,
-            "FR_thigh_joint": 0.8,
-            "RL_thigh_joint": 1.0,
-            "RR_thigh_joint": 1.0,
-            "FL_calf_joint": -1.5,
-            "FR_calf_joint": -1.5,
-            "RL_calf_joint": -1.5,
-            "RR_calf_joint": -1.5,
+            'shoulder_pan_joint' : -0.0,
+            'shoulder_lift_joint' : -0.9,
+            'elbow_joint'  : -0.5,
+            'wrist_1_joint' :  -1.4,
+            'wrist_2_joint' : -1.3,
+            'wrist_3_joint' : -0.3,
+            'finger_joint' : 0.04,
         },
         "joint_names": [
-            "FR_hip_joint",
-            "FR_thigh_joint",
-            "FR_calf_joint",
-            "FL_hip_joint",
-            "FL_thigh_joint",
-            "FL_calf_joint",
-            "RR_hip_joint",
-            "RR_thigh_joint",
-            "RR_calf_joint",
-            "RL_hip_joint",
-            "RL_thigh_joint",
-            "RL_calf_joint",
+            'shoulder_pan_joint',
+            'shoulder_lift_joint',
+            'elbow_joint',
+            'wrist_1_joint',
+            'wrist_2_joint',
+            'wrist_3_joint',
+            'finger_joint',
         ],
         # PD
-        "kp": 20.0,
-        "kd": 0.5,
+        "kp": [4500, 4500, 3500, 3500, 2000, 2000, 100,],
+        "kd": [450,   450,  350,  350,  200,  200, 10,],
+        "force_limit_l": [-87, -87, -87, -87, -87, -87, -12,],
+        "force_limit_u": [ 87,  87,  87,  87,  87,  87,  12,],
         # termination
-        "termination_if_roll_greater_than": 10,  # degree
-        "termination_if_pitch_greater_than": 10,
+        #"termination_if_roll_greater_than": 10,  # degree
+        #"termination_if_pitch_greater_than": 10,
         # base pose
-        "base_init_pos": [0.0, 0.0, 0.42],
-        "base_init_quat": [1.0, 0.0, 0.0, 0.0],
-        "episode_length_s": 20.0,
+        "base_init_pos": [  -0, -0.9,  -0.5,  -1.4,  -1.3,  -0.3, 0.04],
+        "base_init_quat": [0.0, 1, 0.0, 0.0],
+        "episode_length_s": 4.0,
         "resampling_time_s": 4.0,
-        "action_scale": 0.25,
+        "action_scale": 0.05,
         "simulate_action_latency": True,
-        "clip_actions": 100.0,
+        "clip_actions": 1.0,
     }
     obs_cfg = {
-        "num_obs": 45,
+        "num_obs": 21,  # 3 for EE postion, 4 for EE quaternion, 7 for joint positions, 7 for action
         "obs_scales": {
             "lin_vel": 2.0,
             "ang_vel": 0.25,
@@ -123,23 +115,16 @@ def get_cfgs():
         },
     }
     reward_cfg = {
-        "tracking_sigma": 0.25,
-        "base_height_target": 0.3,
-        "feet_height_target": 0.075,
+        "target_pos" : [0.65, 0.0, 0.15],
         "reward_scales": {
-            "tracking_lin_vel": 1.0,
-            "tracking_ang_vel": 0.2,
-            "lin_vel_z": -1.0,
-            "base_height": -50.0,
-            "action_rate": -0.005,
-            "similar_to_default": -0.1,
+            "reach_target": 10.0,  # ターゲットに到達
+            "grasp_success": 50.0,  # 把持成功
+            "action_smoothness": -0.01,  # アクションの滑らかさ
+            #"collision_penalty": -1.0,  # 衝突ペナルティ
         },
     }
     command_cfg = {
-        "num_commands": 3,
-        "lin_vel_x_range": [0.5, 0.5],
-        "lin_vel_y_range": [0, 0],
-        "ang_vel_range": [0, 0],
+        "num_commands": 6,
     }
 
     return env_cfg, obs_cfg, reward_cfg, command_cfg
@@ -147,7 +132,7 @@ def get_cfgs():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
+    parser.add_argument("-e", "--exp_name", type=str, default="ur-pick")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=101)
     args = parser.parse_args()
