@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import ArrayLike
 import taichi as ti
 import torch
-from numpy.typing import ArrayLike
 
 import genesis as gs
 import trimesh
@@ -15,7 +15,6 @@ from .rigid_geom import RigidGeom, RigidVisGeom
 if TYPE_CHECKING:
     from .rigid_entity import RigidEntity
     from genesis.engine.solvers.rigid.rigid_solver_decomp import RigidSolver
-    from genesis.ext.pyrender.interaction.vec3 import Pose
 
 
 @ti.data_oriented
@@ -54,7 +53,7 @@ class RigidLink(RBC):
         self._name: str = name
         self._entity: "RigidEntity" = entity
         self._solver: "RigidSolver" = entity.solver
-        self._entity_idx_in_solver = entity._idx_in_solver
+        self._entity_idx_in_solver = entity.idx
 
         self._uid = gs.UID()
         self._idx: int = idx
@@ -113,7 +112,7 @@ class RigidLink(RBC):
                 is_fixed = False
         if self._root_idx is None:
             self._root_idx = gs.np_int(link.idx)
-        self.is_fixed = is_fixed
+        self.is_fixed: np.int32 = gs.np_int(is_fixed)  # note: type inconsistent with is_built, is_free, is_leaf: bool
 
         # inertial_mass and inertia_i
         if self._inertial_mass is None:
@@ -163,15 +162,11 @@ class RigidLink(RBC):
                         * np.eye(3)
                     )
 
-        self._inertial_i = np.asarray(self._inertial_i, dtype=gs.np_float)
+        self._inertial_i = np.array(self._inertial_i, dtype=gs.np_float)
 
         # override invweight if fixed
         if is_fixed:
             self._invweight = np.zeros((2,), dtype=gs.np_float)
-
-        import genesis.engine.solvers.rigid.rigid_solver_decomp as rigid_solver_decomp
-
-        self.rsd = rigid_solver_decomp
 
     def _compose_init_mesh(self):
         if len(self._geoms) == 0 and len(self._vgeoms) == 0:
@@ -299,7 +294,6 @@ class RigidLink(RBC):
         """
         Get the vertices of the link's collision body (concatenation of all `link.geoms`) in the world frame.
         """
-        self._update_verts_for_geom()
         if self.is_free:
             tensor = torch.empty(
                 self._solver._batch_shape((self.n_verts, 3), True), dtype=gs.tc_float, device=gs.device
@@ -312,20 +306,22 @@ class RigidLink(RBC):
             self._kernel_get_fixed_verts(tensor)
         return tensor
 
-    @gs.assert_built
-    def _update_verts_for_geom(self):
-        for i_g_ in range(self.n_geoms):
-            i_g = i_g_ + self._geom_start
-            self._solver.update_verts_for_geom(i_g)
-
     @ti.kernel
     def _kernel_get_free_verts(self, tensor: ti.types.ndarray()):
+        for i_g_, i_b in ti.ndrange(self.n_geoms, self._solver._B):
+            i_g = i_g_ + self._geom_start
+            self._solver._func_update_verts_for_geom(i_g, i_b)
+
         for i, j, b in ti.ndrange(self.n_verts, 3, self._solver._B):
             idx_vert = i + self._verts_state_start
             tensor[b, i, j] = self._solver.free_verts_state.pos[idx_vert, b][j]
 
     @ti.kernel
     def _kernel_get_fixed_verts(self, tensor: ti.types.ndarray()):
+        for i_g_ in range(self.n_geoms):
+            i_g = i_g_ + self._geom_start
+            self._solver._func_update_verts_for_geom(i_g, 0)
+
         for i, j in ti.ndrange(self.n_verts, 3):
             idx_vert = i + self._verts_state_start
             tensor[i, j] = self._solver.fixed_verts_state.pos[idx_vert][j]
@@ -383,24 +379,21 @@ class RigidLink(RBC):
         """
         Set the mass of the link.
         """
-        if self.is_fixed:
-            gs.warning(f"Updating the mass of a link that is fixed wrt world has no effect, skipping.")
+        if mass <= 0:
+            if mass < 0:
+                gs.raise_exception(f"Attempt to set mass of {mass} to {self.name} link. Mass must be positive.")
+            gs.logger.warning(f"Attempt to set mass of {mass} to {self.name} link. Mass must be positive, skipping.")
             return
 
-        if mass < gs.EPS:
-            gs.raise_exception(f"Attempt to set mass of link '{self.name}' to {mass}. Mass must be strictly positive.")
-
-        ratio = float(mass) / self._inertial_mass
+        ratio = mass / self._inertial_mass
+        assert ratio > 0
         self._inertial_mass *= ratio
         if self._invweight is not None:
             self._invweight /= ratio
         self._inertial_i *= ratio
 
-        self.rsd.kernel_adjust_link_inertia(
-            link_idx=self.idx,
-            ratio=ratio,
-            links_info=self._solver.links_info,
-            static_rigid_sim_config=self._solver._static_rigid_sim_config,
+        self._solver._kernel_adjust_link_inertia(
+            self.idx, ratio, self._solver.links_info, self._solver._static_rigid_sim_config
         )
 
     @gs.assert_built
@@ -408,7 +401,7 @@ class RigidLink(RBC):
         """
         Get the mass of the link.
         """
-        return self._inertial_mass
+        return self.inertial_mass
 
     def set_friction(self, friction):
         """
@@ -592,14 +585,14 @@ class RigidLink(RBC):
         return self._invweight
 
     @property
-    def pos(self) -> ArrayLike:
+    def pos(self):
         """
         The initial position of the link. For real-time position, use `link.get_pos()`.
         """
         return self._pos
 
     @property
-    def quat(self) -> ArrayLike:
+    def quat(self):
         """
         The initial quaternion of the link. For real-time quaternion, use `link.get_quat()`.
         """
@@ -744,11 +737,6 @@ class RigidLink(RBC):
         Whether the entity the link belongs to is free.
         """
         return self.entity.is_free
-
-    @property
-    def pose(self) -> "Pose":
-        """Return the current pose of the link (note, this is not necessarily the same as the principal axes frame)."""
-        return Pose.from_link(self)
 
     # ------------------------------------------------------------------------------------
     # -------------------------------------- repr ----------------------------------------

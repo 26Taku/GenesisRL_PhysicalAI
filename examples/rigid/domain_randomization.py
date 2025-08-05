@@ -22,11 +22,11 @@ def main():
             camera_fov=40,
             max_FPS=200,
         ),
+        show_viewer=args.vis,
         rigid_options=gs.options.RigidOptions(
             dt=0.01,
             constraint_solver=gs.constraint_solver.Newton,
         ),
-        show_viewer=args.vis,
     )
 
     ########################## entities ##########################
@@ -48,6 +48,9 @@ def main():
         friction_ratio=0.5 + torch.rand(scene.n_envs, robot.n_links),
         links_idx_local=np.arange(0, robot.n_links),
     )
+    from IPython import embed
+
+    embed()
 
     # set mass of a single link
     link = robot.get_link("RR_thigh")
@@ -66,7 +69,6 @@ def main():
         com_shift=-0.05 + 0.1 * torch.rand(scene.n_envs, robot.n_links, 3),
         links_idx_local=np.arange(0, robot.n_links),
     )
-    aabb = robot.get_AABB()
 
     joints_name = (
         "FR_hip_joint",
@@ -86,12 +88,26 @@ def main():
 
     robot.set_dofs_kp(np.full(12, 20), motors_dof_idx)
     robot.set_dofs_kv(np.full(12, 1), motors_dof_idx)
-    default_dof_pos = np.array([0.0, 0.8, -1.5, 0.0, 0.8, -1.5, 0.0, 1.0, -1.5, 0.0, 1.0, -1.5])
-    # padding to n_env x n_dofs
-    default_dof_pos = np.tile(default_dof_pos, (n_envs, 1))
+    default_dof_pos = np.array(
+        [
+            0.0,
+            0.8,
+            -1.5,
+            0.0,
+            0.8,
+            -1.5,
+            0.0,
+            1.0,
+            -1.5,
+            0.0,
+            1.0,
+            -1.5,
+        ]
+    )
     robot.control_dofs_position(default_dof_pos, motors_dof_idx)
 
-    scene.step()
+    for i in range(1000):
+        scene.step()
 
 
 if __name__ == "__main__":

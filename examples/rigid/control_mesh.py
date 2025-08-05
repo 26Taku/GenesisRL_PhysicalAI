@@ -30,7 +30,6 @@ def main():
         vis_options=gs.options.VisOptions(
             show_link_frame=True,
         ),
-        show_viewer=args.vis,
     )
 
     ########################## entities ##########################
